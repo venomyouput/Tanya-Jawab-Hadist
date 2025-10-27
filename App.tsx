@@ -1,74 +1,54 @@
-
 import React, { useState, useCallback, useRef } from 'react';
 import type { Chat } from '@google/genai';
-import { AnalysisDisplay } from './components/AnalysisDisplay';
 import { ChatInterface } from './components/ChatInterface';
 import { findAndAnalyzeHadith, createDiscussionChat } from './services/geminiService';
 import type { ChatMessage } from './types';
 import { BookIcon } from './components/icons/BookIcon';
 
 const App: React.FC = () => {
-  const [topic, setTopic] = useState<string>('');
-  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [isLoadingAnalysis, setIsLoadingAnalysis] = useState<boolean>(false);
-  const [isLoadingQuestion, setIsLoadingQuestion] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const chatRef = useRef<Chat | null>(null);
 
-  const handleFindAndAnalyze = useCallback(async () => {
-    if (!topic.trim()) return;
-    setIsLoadingAnalysis(true);
-    setError(null);
-    setAnalysisResult(null);
-    setChatHistory([]);
-    chatRef.current = null;
-    
-    try {
-      const result = await findAndAnalyzeHadith(topic);
-      setAnalysisResult(result);
-      chatRef.current = createDiscussionChat(topic, result);
-    } catch (e) {
-      setError('Gagal menemukan dan menganalisis hadis untuk topik ini. Silakan coba lagi.');
-      console.error(e);
-    } finally {
-      setIsLoadingAnalysis(false);
-    }
-  }, [topic]);
-
   const handleSendMessage = useCallback(async (message: string) => {
-    if (!chatRef.current || isLoadingQuestion) return;
-    setIsLoadingQuestion(true);
+    setIsLoading(true);
     setError(null);
-
     const updatedHistory: ChatMessage[] = [...chatHistory, { role: 'user', content: message }];
     setChatHistory(updatedHistory);
 
     try {
-      const response = await chatRef.current.sendMessage({ message });
-      const modelResponse = response.text;
+      let modelResponse: string;
+      // Jika ini adalah pesan pertama, lakukan analisis hadis
+      if (chatHistory.length === 0) {
+        const analysisResult = await findAndAnalyzeHadith(message);
+        modelResponse = analysisResult;
+        // Buat sesi obrolan baru untuk pertanyaan lanjutan
+        chatRef.current = createDiscussionChat(message, analysisResult);
+      } else if (chatRef.current) {
+        // Jika tidak, lanjutkan obrolan yang sudah ada
+        const response = await chatRef.current.sendMessage({ message });
+        modelResponse = response.text;
+      } else {
+        throw new Error("Sesi obrolan tidak diinisialisasi.");
+      }
       setChatHistory([...updatedHistory, { role: 'model', content: modelResponse }]);
     } catch (e) {
-      setError('Gagal mendapatkan tanggapan. Silakan coba lagi.');
+      const errorMessage = 'Gagal mendapatkan tanggapan. Silakan coba lagi.';
+      setError(errorMessage);
       console.error(e);
-      setChatHistory(updatedHistory); // Keep user message on error
+      // Tambahkan pesan error sebagai respons model untuk ditampilkan di UI
+      setChatHistory([...updatedHistory, { role: 'model', content: errorMessage }]);
     } finally {
-      setIsLoadingQuestion(false);
+      setIsLoading(false);
     }
-  }, [chatHistory, isLoadingQuestion]);
-  
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleFindAndAnalyze();
-    }
-  };
+  }, [chatHistory]);
 
   return (
-    <div className="min-h-screen bg-background text-on-surface font-sans p-4 sm:p-6 md:p-8">
-      <div className="max-w-4xl mx-auto">
-        <header className="mb-8 text-center">
+    <div className="min-h-screen bg-background text-on-surface font-sans flex flex-col p-2 sm:p-4">
+      <div className="max-w-4xl w-full mx-auto flex flex-col flex-grow">
+        <header className="my-6 text-center">
           <div className="flex items-center justify-center gap-4 mb-2">
             <BookIcon className="w-10 h-10 text-primary" />
             <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
@@ -76,44 +56,17 @@ const App: React.FC = () => {
             </h1>
           </div>
           <p className="text-on-surface-muted">
-            Diskusikan suatu masalah dan temukan hadis yang relevan beserta analisis Sanad-nya.
+            Mulai percakapan dengan mengajukan pertanyaan tentang suatu topik untuk menemukan hadis yang relevan.
           </p>
         </header>
 
-        <main className="flex flex-col gap-8">
-          <div className="bg-surface rounded-xl shadow-lg p-6">
-            <label htmlFor="topic-input" className="text-xl font-semibold text-white mb-4 block">
-              1. Masukkan Topik atau Pertanyaan
-            </label>
-            <textarea
-              id="topic-input"
-              rows={3}
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="cth., 'Apa pandangan Islam tentang sedekah?' atau 'Hukum menjamak shalat saat bepergian.'"
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
-            />
-            <button
-              onClick={handleFindAndAnalyze}
-              disabled={!topic.trim() || isLoadingAnalysis}
-              className="mt-4 w-full bg-primary text-white font-bold py-3 px-4 rounded-lg hover:bg-primary-focus focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background focus:ring-primary disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
-            >
-              {isLoadingAnalysis ? 'Mencari & Menganalisis...' : '2. Cari & Analisis Hadis'}
-            </button>
-          </div>
-          
-          <AnalysisDisplay analysis={analysisResult} isLoading={isLoadingAnalysis} />
-
-          <div>
-            <ChatInterface
+        <main className="flex-grow flex flex-col">
+           <ChatInterface
               chatHistory={chatHistory}
               onSendMessage={handleSendMessage}
-              isLoading={isLoadingQuestion}
-              isDisabled={!analysisResult || isLoadingAnalysis}
+              isLoading={isLoading}
             />
-             {error && <div className="mt-4 text-center text-red-400 bg-red-900/50 p-3 rounded-lg">{error}</div>}
-          </div>
+             {error && !isLoading && <div className="mt-2 text-center text-sm text-red-400">{error}</div>}
         </main>
       </div>
     </div>

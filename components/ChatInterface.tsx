@@ -7,15 +7,13 @@ interface ChatInterfaceProps {
   chatHistory: ChatMessage[];
   onSendMessage: (message: string) => void;
   isLoading: boolean;
-  isDisabled: boolean;
 }
 
-// A more robust markdown renderer that handles bolding from both markdown (**) and HTML (<strong>)
+// Menggabungkan renderer markdown terbaik dari AnalysisDisplay dan ChatInterface
 const renderMarkdown = (text: string): React.ReactNode => {
     const renderInline = (line: string) => {
-        // Normalize <strong> tags to markdown's ** for consistent parsing
+        // Normalisasi <strong> dan <b> ke markdown ** agar konsisten
         const normalizedLine = line.replace(/<strong>/g, '**').replace(/<\/strong>/g, '**');
-        
         const parts = normalizedLine.split(/(\*\*.*?\*\*)/g);
         
         return parts.map((part, index) => {
@@ -41,33 +39,29 @@ const renderMarkdown = (text: string): React.ReactNode => {
     };
 
     text.split('\n').forEach((line) => {
-        if (line.startsWith('### ')) {
+        if (line.startsWith('## ')) {
             flushList();
-            elements.push(<h3 key={elements.length} className="text-md font-semibold my-2">{renderInline(line.substring(4))}</h3>);
-        } else if (line.startsWith('## ')) {
+            elements.push(<h2 key={elements.length} className="text-xl font-bold text-white mt-4 mb-2 border-b-2 border-primary pb-1">{renderInline(line.substring(3))}</h2>);
+        } else if (line.startsWith('### ')) {
             flushList();
-            elements.push(<h2 key={elements.length} className="text-lg font-semibold my-2">{renderInline(line.substring(3))}</h2>);
-        } else if (line.startsWith('# ')) {
-            flushList();
-            elements.push(<h1 key={elements.length} className="text-xl font-bold my-2">{renderInline(line.substring(2))}</h1>);
+            elements.push(<h3 key={elements.length} className="text-lg font-semibold text-primary mt-4 mb-2">{renderInline(line.substring(4))}</h3>);
         } else if (line.startsWith('* ') || line.startsWith('- ')) {
             currentList.push(line.substring(2));
         } else if (line.trim() === '') {
-             if (currentList.length > 0) {
-                flushList();
-             }
+             if (currentList.length > 0) flushList();
         } else {
             flushList();
-            elements.push(<p key={elements.length} className="my-1">{renderInline(line)}</p>);
+            elements.push(<p key={elements.length} className="my-2 leading-relaxed">{renderInline(line)}</p>);
         }
     });
 
-    flushList(); // Make sure to flush any remaining list items at the end
+    flushList();
     
-    return <div className="space-y-2">{elements}</div>;
+    return <div>{elements}</div>;
 };
 
-export const ChatInterface: React.FC<ChatInterfaceProps> = ({ chatHistory, onSendMessage, isLoading, isDisabled }) => {
+
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ chatHistory, onSendMessage, isLoading }) => {
   const [input, setInput] = useState('');
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -79,37 +73,37 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ chatHistory, onSen
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (input.trim() && !isLoading && !isDisabled) {
+    if (input.trim() && !isLoading) {
       onSendMessage(input.trim());
       setInput('');
     }
   };
+  
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      handleSubmit(e);
+    }
+  };
 
   return (
-    <div className="bg-surface rounded-xl shadow-lg flex flex-col h-[calc(100vh-12rem)] max-h-[800px] lg:h-full">
-      <div className="p-4 border-b border-slate-600 flex-shrink-0">
-        <h2 className="text-xl font-semibold text-white text-center">4. Ajukan Pertanyaan Lanjutan</h2>
-      </div>
-
+    <div className="bg-surface rounded-xl shadow-lg flex flex-col flex-grow h-full max-h-[calc(100vh-14rem)]">
       <div ref={chatContainerRef} className="flex-grow p-4 overflow-y-auto space-y-4">
-        {isDisabled ? (
-           <div className="flex items-center justify-center h-full">
-            <p className="text-on-surface-muted text-center">Silakan analisis hadis terlebih dahulu untuk mengaktifkan obrolan.</p>
-          </div>
-        ) : chatHistory.length === 0 ? (
+        {chatHistory.length === 0 && !isLoading ? (
           <div className="flex items-center justify-center h-full">
-            <p className="text-on-surface-muted text-center">Ajukan pertanyaan tentang analisis, perawi, atau terminologi.</p>
+            <p className="text-on-surface-muted text-center">
+              cth., "Apa pandangan Islam tentang sedekah?"<br/>atau "Hukum menjamak shalat saat bepergian."
+            </p>
           </div>
         ) : (
           chatHistory.map((msg, index) => (
             <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-md lg:max-w-lg p-3 rounded-xl ${msg.role === 'user' ? 'bg-primary text-white' : 'bg-slate-600 text-on-surface'}`}>
+              <div className={`max-w-full lg:max-w-3xl p-3 rounded-xl ${msg.role === 'user' ? 'bg-primary text-white' : 'bg-slate-600 text-on-surface'}`}>
                 {msg.role === 'model' ? renderMarkdown(msg.content) : msg.content}
               </div>
             </div>
           ))
         )}
-        {isLoading && (
+        {isLoading && chatHistory.length > 0 && (
             <div className="flex justify-start">
                  <div className="max-w-md lg:max-w-lg p-3 rounded-xl bg-slate-600 text-on-surface">
                     <Loader/>
@@ -124,13 +118,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ chatHistory, onSen
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={isDisabled ? "Analisis hadis untuk memulai" : "Ketik pertanyaan Anda..."}
-            disabled={isDisabled || isLoading}
+            onKeyDown={handleKeyDown}
+            placeholder={isLoading ? "AI sedang berpikir..." : "Ketik pertanyaan Anda..."}
+            disabled={isLoading}
             className="w-full bg-slate-800 border border-slate-600 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
           />
           <button
             type="submit"
-            disabled={isDisabled || isLoading || !input.trim()}
+            disabled={isLoading || !input.trim()}
             className="bg-primary text-white p-2.5 rounded-full hover:bg-primary-focus focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background focus:ring-primary disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
           >
             <SendIcon className="w-5 h-5" />
